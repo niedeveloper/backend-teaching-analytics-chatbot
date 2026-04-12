@@ -33,7 +33,7 @@ class IntentAnalyzer:
             api_version=settings.AZURE_OPENAI_API_VERSION,
             azure_deployment=settings.AZURE_OPENAI_DEPLOYMENT_RAG,
             temperature=0.1,  # Low temperature for consistent routing decisions
-            max_tokens=300
+            max_tokens=600
         )
         
         # Supabase client for accessing file summaries
@@ -49,8 +49,14 @@ You are a routing specialist that understands teaching contexts and can efficien
 Transform user query into a more effective query for the agents IF:
 - User question is too vague
 - User asks about data visualization
-If prompted with data visualization, intelligently transform the query for comments on the graph. DO NOT prompt your agents to create data visualization.
-Examples: "Show me a graph of xxx" -> "Comment on my xxx throughout the lesson"
+
+If the user requests a graph, chart, or visualization:
+- Set needs_graph: true (the graph will be rendered separately by the system)
+- Transform the query into commentary framing so the agent provides verbal analysis alongside the graph
+- Examples: "Show me a graph of xxx" → "Comment on my xxx across the lesson"
+           "Could you graph my teaching area distribution" → "Provide insights on my teaching area distribution across the lessons"
+           "Can you chart my questioning patterns" → "Analyze my questioning patterns throughout the lesson"
+- The downstream agent does NOT generate the graph — it only provides the text commentary to accompany it
 
 CRITICAL SCOPE PRESERVATION RULES:
 - DO NOT EXPAND THE SCOPE OF THE QUERY
@@ -228,7 +234,10 @@ When conversation history is available:
             if role == "user" and content:
                 messages.append(HumanMessage(content=content))
             elif role == "assistant" and content:
-                messages.append(AIMessage(content=content))
+                # Truncate long AI responses — intent routing only needs the gist,
+                # not full transcript quotes that bloat context and eat output token budget
+                truncated = content[:300] + "..." if len(content) > 300 else content
+                messages.append(AIMessage(content=truncated))
         
         # Add current message
         messages.append(HumanMessage(content=current_message))
@@ -404,7 +413,21 @@ Note: For single graphs, use graph_types with one object. For multiple graphs, u
             # Update with processed filters
             intent_analysis["lesson_filter"] = lesson_filter
             intent_analysis["area_filter"] = area_filter
-            
+
+            # Safety net: if the LLM missed graph intent, catch it via keyword scan
+            GRAPH_KEYWORDS = ["graph", "chart", "plot", "visuali", "distribution", "trend", "breakdown", "diagram"]
+            if not intent_analysis.get("needs_graph"):
+                msg_lower = user_message.lower()
+                if any(kw in msg_lower for kw in GRAPH_KEYWORDS):
+                    print(f"DEBUG: Keyword safety net triggered for message: {user_message}")
+                    intent_analysis["needs_graph"] = True
+                    intent_analysis["agent_to_use"] = "general_assistant"
+                    if not intent_analysis.get("graph_types"):
+                        intent_analysis["graph_types"] = [{
+                            "type": "teaching_area_distribution",
+                            "reason": "User requested graph visualization"
+                        }]
+
             print(f"DEBUG: Final intent_analysis: {intent_analysis}")
             return intent_analysis
             

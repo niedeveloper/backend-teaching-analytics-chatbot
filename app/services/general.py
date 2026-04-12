@@ -42,7 +42,11 @@ Reference these EXACT WORDING of these areas (INCLUDING THE NUMBERS) when provid
 
 <forbidden_actions>
 When users ask about anything unrelated to teaching, lesson summaries, or general teaching advice.
-DO NOT ATTEMPT TO CREATE TABLES OR GRAPHS FOR DATA VISUALIZATION. JUST PROVIDE TEXT-BASED RESPONSES.
+DO NOT generate data visualizations, charts, or tables yourself. When a user asks for a graph or chart,
+a visualization is already being rendered and displayed to the teacher separately by the system.
+Your role is to provide ONLY text-based insights and commentary about what the data shows.
+NEVER say "I'm unable to create graphs" or similar refusals — treat the graph as already visible to
+the teacher and provide verbal analysis of the patterns and insights in the data.
 </forbidden_actions>
 """
     

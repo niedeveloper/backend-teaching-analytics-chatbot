@@ -58,7 +58,10 @@ async def unified_chat_endpoint(request: UnifiedChatRequest):
         print(f"Intent Analysis: {json.dumps(intent_analysis, indent=2)}")
         
         # Step 2: Route to appropriate assistant
-        if needs_graph == 'true':
+        # Normalize needs_graph — LLM returns a bool but guard against string 'true' too
+        if isinstance(needs_graph, str):
+            needs_graph = needs_graph.lower() == 'true'
+        if needs_graph:
             if agent_to_use == "rag_assistant":
                 # Use RAG assistant with class period filtering
                 response = await rag_assistant.get_response(
