@@ -138,11 +138,21 @@ async def unified_streaming_generator(
         else:
             needs_graph_bool = bool(needs_graph)
 
+        # Strip the current user message from history before passing to assistants.
+        # The frontend always appends the current message to conversation_history, so
+        # without this the LLM sees it twice: once in history and once as user_message/
+        # transformed_query — causing it to respond to the raw "graph" request even when
+        # the transformed query has had that language removed.
+        assistant_history = (
+            (conversation_history[:-1] if conversation_history and conversation_history[-1].get("role") == "user" else conversation_history)
+            or []
+        )
+
         # Step 2: Send graph codes first if needed
         if needs_graph_bool and graph_types:
             lesson_filter = intent_analysis.get("lesson_filter", [])
             area_filter = intent_analysis.get("area_filter", [])
-            
+
             # Send each graph code separately
             for graph_obj in graph_types:
                 graph_type = graph_obj.get("type")
@@ -159,14 +169,16 @@ async def unified_streaming_generator(
                     user_message=transformed_query,
                     file_ids=file_ids,
                     class_period=class_period,
-                    conversation_history=conversation_history
+                    conversation_history=assistant_history,
+                    is_graph_companion=True
                 ):
                     yield chunk
             else:
                 async for chunk in general_assistant.get_response_stream(
                     user_message=transformed_query,
                     file_ids=file_ids,
-                    conversation_history=conversation_history
+                    conversation_history=assistant_history,
+                    is_graph_companion=True
                 ):
                     yield chunk
         else:
@@ -176,14 +188,14 @@ async def unified_streaming_generator(
                     user_message=user_message,
                     file_ids=file_ids,
                     class_period=class_period,
-                    conversation_history=conversation_history
+                    conversation_history=assistant_history
                 ):
                     yield chunk
             else:
                 async for chunk in general_assistant.get_response_stream(
                     user_message=user_message,
                     file_ids=file_ids,
-                    conversation_history=conversation_history
+                    conversation_history=assistant_history
                 ):
                     yield chunk
 

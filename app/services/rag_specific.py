@@ -302,20 +302,31 @@ DO NOT ATTEMPT TO CREATE TABLES OR GRAPHS FOR DATA VISUALIZATION. JUST PROVIDE T
         
         return "\n".join(summary_sections) if summary_sections else "No lesson summaries available."
     
-    def _build_message_history(self, conversation_history: List[Dict[str, str]], current_message: str, lesson_summaries: str, context: str) -> List:
+    def _build_message_history(self, conversation_history: List[Dict[str, str]], current_message: str, lesson_summaries: str, context: str, is_graph_companion: bool = False) -> List:
         """Build proper message history for LangChain with lesson context"""
         messages = [SystemMessage(content=self.system_prompt)]
-        
+
         # Add conversation history (keep last 6 messages for better context)
         for msg in conversation_history[-6:]:
             role = msg.get("role", "").lower()
             content = msg.get("content", "")
-            
+
             if role == "user" and content:
                 messages.append(HumanMessage(content=content))
             elif role == "assistant" and content:
                 messages.append(AIMessage(content=content))
-        
+
+        graph_companion_note = ""
+        if is_graph_companion:
+            graph_companion_note = """
+<graph_companion_instruction>
+A data visualization has already been rendered and is visible to the teacher above this message.
+Your ONLY job is to provide brief verbal commentary and insights to accompany that graph.
+Do NOT say you cannot create graphs. Do NOT say "I can't create a graph" or any similar phrase.
+Start your response directly with the insights.
+</graph_companion_instruction>
+"""
+
         # Add current message with lesson context (NOT system prompt)
         current_with_context = f"""
 <lesson_overview>
@@ -326,6 +337,7 @@ DO NOT ATTEMPT TO CREATE TABLES OR GRAPHS FOR DATA VISUALIZATION. JUST PROVIDE T
 {context}
 </lesson_chunks>
 
+{graph_companion_note}
 <teacher_question>
 {current_message}
 </teacher_question>
@@ -346,74 +358,74 @@ DO NOT ATTEMPT TO CREATE TABLES OR GRAPHS FOR DATA VISUALIZATION. JUST PROVIDE T
 7. MAKE SURE TO CITE EVIDENCE INCLUDING CLASS SECTION AND TEACHING AREAS
 8. Always remember, your users have limited time and are lazy. Be concise and visually appealing.
 </analysis_instructions>
-
-
 """
         messages.append(HumanMessage(content=current_with_context))
         print(context)
         return messages
     
-    async def get_response(self, semantic_query: str, user_message: str, file_ids: List[int], class_period: Optional[str] = None, conversation_history: List[Dict[str, str]] = None, top_k: int = 5) -> str:
+    async def get_response(self, semantic_query: str, user_message: str, file_ids: List[int], class_period: Optional[str] = None, conversation_history: List[Dict[str, str]] = None, top_k: int = 5, is_graph_companion: bool = False) -> str:
         try:
             # Get lesson summaries and context
             lesson_summaries = self._get_file_summaries(file_ids)
-            
+
             # Try to get chunks - filtered by class period if provided
             all_chunks = []
             for fid in file_ids:
                 chunks = self._get_chunks_from_supabase(fid, class_period)
                 all_chunks.extend(chunks)
-            
+
             # Process chunks if available
             context = "No detailed transcript chunks available."
             if all_chunks:
                 top_chunks = self._semantic_search(semantic_query, all_chunks, top_k=top_k)
                 if top_chunks:
                     context = self._format_chunks_for_context(top_chunks)
-            
+
             # Use the helper function to get LLM
             llm = self._get_llm(streaming=False)
-            
+
             # Generate response using message history builder
             messages = self._build_message_history(
                 conversation_history or [],
-                user_message, 
-                lesson_summaries, 
-                context
+                user_message,
+                lesson_summaries,
+                context,
+                is_graph_companion
             )
             response = await llm.ainvoke(messages)
             return response.content
-            
+
         except Exception as e:
             return f"I apologize, but I encountered an error while analyzing the lesson: {str(e)}"
 
-    async def get_response_stream(self, semantic_query: str, user_message: str, file_ids: List[int], class_period: Optional[str] = None, conversation_history: List[Dict[str, str]] = None, top_k: int = 5) -> AsyncGenerator[str, None]:
+    async def get_response_stream(self, semantic_query: str, user_message: str, file_ids: List[int], class_period: Optional[str] = None, conversation_history: List[Dict[str, str]] = None, top_k: int = 5, is_graph_companion: bool = False) -> AsyncGenerator[str, None]:
         try:
             # Get lesson summaries and context
             lesson_summaries = self._get_file_summaries(file_ids)
-            
+
             # Try to get chunks - filtered by class period if provided
             all_chunks = []
             for fid in file_ids:
                 chunks = self._get_chunks_from_supabase(fid, class_period)
                 all_chunks.extend(chunks)
-            
+
             # Process chunks if available
             context = "No detailed transcript chunks available."
             if all_chunks:
                 top_chunks = self._semantic_search(semantic_query, all_chunks, top_k=top_k)
                 if top_chunks:
                     context = self._format_chunks_for_context(top_chunks)
-            
+
             # Use the helper function to get streaming LLM
             streaming_llm = self._get_llm(streaming=True)
-            
+
             # Generate streaming response using message history builder
             messages = self._build_message_history(
                 conversation_history or [],
-                user_message, 
-                lesson_summaries, 
-                context
+                user_message,
+                lesson_summaries,
+                context,
+                is_graph_companion
             )
             
             # Stream the response

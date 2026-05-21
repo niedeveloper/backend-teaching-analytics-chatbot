@@ -82,27 +82,38 @@ the teacher and provide verbal analysis of the patterns and insights in the data
         
         return "\n\n".join(summary_sections) if summary_sections else "No lesson summaries available."
     
-    def _build_message_history(self, conversation_history: List[Dict[str, str]], current_message: str, lesson_summaries: str) -> List:
+    def _build_message_history(self, conversation_history: List[Dict[str, str]], current_message: str, lesson_summaries: str, is_graph_companion: bool = False) -> List:
         """Build proper message history for LangChain with lesson context"""
         messages = [SystemMessage(content=self.system_prompt)]
-        
+
         # Add conversation history (keep last 6 messages for better context)
         for msg in conversation_history[-6:]:
             role = msg.get("role", "").lower()
             content = msg.get("content", "")
-            
+
             if role == "user" and content:
                 messages.append(HumanMessage(content=content))
             elif role == "assistant" and content:
                 messages.append(AIMessage(content=content))
-        
+
+        graph_companion_note = ""
+        if is_graph_companion:
+            graph_companion_note = """
+<graph_companion_instruction>
+A data visualization has already been rendered and is visible to the teacher above this message.
+Your ONLY job is to provide brief verbal commentary and insights to accompany that graph.
+Do NOT say you cannot create graphs. Do NOT say "I can't create a graph" or any similar phrase.
+Start your response directly with the insights.
+</graph_companion_instruction>
+"""
+
         # Add current message with lesson context (NOT system prompt)
         current_with_context = f"""
 <lesson_context>
 {lesson_summaries}
 </lesson_context>
 
-
+{graph_companion_note}
 <teacher_question>
 {current_message}
 </teacher_question>
@@ -110,17 +121,17 @@ the teacher and provide verbal analysis of the patterns and insights in the data
 <chatbot_guidelines>
 You will be provided with lesson summaries. Use these conditionally when ONLY IF the teacher asks about it.
 Be absolutely CONCISE AND DIRECT in your responses. Avoid unnecessary verbosity. Be specific ONLY IF teacher asks to be specific.
-When asked about trends, summarize key points and insights about that trend unless prompted otherwise. 
+When asked about trends, summarize key points and insights about that trend unless prompted otherwise.
 
 <if asked about lesson summaries>
-DO NOT provide the summaries directly. Instead, summarize key points and insights, the summary table will be displayed outside of your response. 
+DO NOT provide the summaries directly. Instead, summarize key points and insights, the summary table will be displayed outside of your response.
 </chatbot_guidelines>
 """
-        
+
         messages.append(HumanMessage(content=current_with_context))
         return messages
     
-    async def get_response(self, user_message: str, file_ids: List[int], conversation_history: List[Dict[str, str]] = None) -> str:
+    async def get_response(self, user_message: str, file_ids: List[int], conversation_history: List[Dict[str, str]] = None, is_graph_companion: bool = False) -> str:
         """
         Get general teaching response with lesson context
         
@@ -136,14 +147,14 @@ DO NOT provide the summaries directly. Instead, summarize key points and insight
             # Get lesson summaries for context
             lesson_summaries = self._get_file_summaries(file_ids)
             # Use conversation history for continuity
-            messages = self._build_message_history(conversation_history, user_message, lesson_summaries)
+            messages = self._build_message_history(conversation_history, user_message, lesson_summaries, is_graph_companion)
             response = await self._get_llm().ainvoke(messages)
             return response.content
             
         except Exception as e:
             return f"I apologize, but I encountered an error while processing your request: {str(e)}"
     
-    async def get_response_stream(self, user_message: str, file_ids: List[int], conversation_history: List[Dict[str, str]] = None) -> AsyncGenerator[str, None]:
+    async def get_response_stream(self, user_message: str, file_ids: List[int], conversation_history: List[Dict[str, str]] = None, is_graph_companion: bool = False) -> AsyncGenerator[str, None]:
         """
         Stream general teaching response with lesson context
         
@@ -158,9 +169,9 @@ DO NOT provide the summaries directly. Instead, summarize key points and insight
         try:
             # Get lesson summaries for context
             lesson_summaries = self._get_file_summaries(file_ids)
-            
-            messages = self._build_message_history(conversation_history, user_message, lesson_summaries)
-            
+
+            messages = self._build_message_history(conversation_history, user_message, lesson_summaries, is_graph_companion)
+
             # Stream the response
             streaming_llm = self._get_llm(streaming=True)
             async for chunk in streaming_llm.astream(messages):
